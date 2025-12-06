@@ -1,36 +1,27 @@
 from flask import Flask, jsonify
 import cloudscraper
-import re
+import time
 
 app = Flask(__name__)
 
 # Cloudflare bypass client
 scraper = cloudscraper.create_scraper()
 
-# Cache for current email session
+# Current session cache
 current_session = {
     "address": None,
     "session_url": "https://10minutemail.com/session/address"
 }
 
-def extract_email_from_html(html_text):
-    """
-    Extract email address from 10MinuteMail HTML response using regex
-    """
-    match = re.search(r'"address":"([A-Za-z0-9@.]*)"', html_text)
-    if match:
-        return match.group(1)
-    return None
-
 @app.route("/get-email", methods=["GET"])
 def get_email():
     """
-    Return the current session email address
+    Return the current 10MinuteMail session email
     """
     try:
-        response = scraper.get(current_session["session_url"])
-        html_text = response.text
-        email = extract_email_from_html(html_text)
+        response = scraper.get(current_session["session_url"], timeout=10)
+        data = response.json()
+        email = data.get("address")
         current_session["address"] = email
         return jsonify({
             "success": True if email else False,
@@ -46,19 +37,21 @@ def refresh_email():
     """
     try:
         # Trigger new session
-        scraper.get("https://10minutemail.com/session/new")
+        scraper.get("https://10minutemail.com/session/new", timeout=10)
 
-        # Get current email address
-        response = scraper.get("https://10minutemail.com/session/address")
-        html_text = response.text
-        email = extract_email_from_html(html_text)
+        # Sometimes session needs a tiny delay to register
+        time.sleep(0.5)
+
+        # Get the new email
+        response = scraper.get(current_session["session_url"], timeout=10)
+        data = response.json()
+        email = data.get("address")
         current_session["address"] = email
 
         return jsonify({
             "success": True if email else False,
             "data": {"address": email}
         })
-
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
